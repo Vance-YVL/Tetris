@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tetris Arcade</title>
+<style>
+  body {
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    color: white;
+    font-family: sans-serif;
+    overflow: hidden;
+    transition: background 0.5s;
+  }
+
+  body.neoMode {/*Easter egg do matrix muito legal*/
+    background: radial-gradient(#001100, #000000);
+  }
+body.neoMode {/*Easter egg do matrix muito legal*/
+  background: url('https://uploads.onecompiler.io/43sqmgy55/443vcp6c2/matrix-matrix-code.gif'), radial-gradient(#001100, #000000);
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+  canvas {
+    background: #000;
+    border: 2px solid #444;
+  }
+
+  #hud {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 1.2em;
+  }
+
+  #hud div {
+    margin-bottom: 6px;
+  }
+
+  #pauseBtn {
+    margin-top: 5px;
+    padding: 5px 10px;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  #menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #222;
+    padding: 20px 30px;
+    border: 2px solid #555;
+    border-radius: 8px;
+    text-align: center;
+    display: none;
+    z-index: 10;
+  }
+
+  #menu input {
+    background: #111;
+    border: 1px solid #555;
+    color: white;
+    padding: 8px;
+    width: 200px;
+    text-align: center;
+  }
+
+  #menu button {
+    margin-top: 10px;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  #menu button.secondary {
+    background: #555;
+  }
+
+  #overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    z-index: 5;
+    display: none;
+  }
+
+  #message {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #222;
+    border: 2px solid #555;
+    padding: 20px;
+    border-radius: 6px;
+    display: none;
+    z-index: 15;
+  }
+
+  #pauseOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-size: 2em;
+    font-weight: bold;
+    display: none;
+    z-index: 20;
+  }
+</style>
+</head>
+<body>
+  <div id="hud">
+    <div id="playerName">Jogador: --</div>
+    <div id="score">Score: 0</div>
+    <div id="highscore">High Score: 0 (---)</div>
+    <div id="timer">Tempo: 00:00</div>
+    <button id="pauseBtn">Pause</button>
+  </div>
+
+  <canvas id="tetris" width="240" height="400"></canvas>
+
+  <div id="overlay"></div>
+  <div id="menu">
+    <h3 id="menuTitle">TETIZ (não confundir com Tetris)<br><br>
+                        P: Pausa o jogo<br><br>
+                        Seta esquerda: move a peça para a esquerda<br><br>
+                        Seta direita: move a peça para a direita<br><br>
+                        Q ou W: rotacionam a peça<br><br>
+                        Insira seu nome:</h3>
+    <div id="inputSection">
+      <input id="usernameField" type="text" maxlength="10" placeholder="Seu nome">
+      <br>
+      <button id="startButton">Iniciar Jogo</button>
+    </div>
+    
+    <div id="restartSection" style="display: none;">
+      <p>Jogar novamente?</p>
+      <button id="restartSameBtn">Mesmo nome</button>
+      <button id="restartChangeBtn" class="secondary">Trocar nome</button>
+    </div>
+  </div>
+
+  <div id="message"></div>
+  <div id="pauseOverlay">PAUSE<br><br><br>
+                        Desenvolvido por: Fabio Rafael</div>
+
+  <script>
+    const canvas = document.getElementById('tetris');
+    const context = canvas.getContext('2d');
+    context.scale(20, 20);
+
+    const scoreEl = document.getElementById('score');
+    const playerNameEl = document.getElementById('playerName');
+    const highScoreEl = document.getElementById('highscore');
+    const timerEl = document.getElementById('timer');
+    const menu = document.getElementById('menu');
+    const overlay = document.getElementById('overlay');
+    const startButton = document.getElementById('startButton');
+    const restartSameBtn = document.getElementById('restartSameBtn');
+    const restartChangeBtn = document.getElementById('restartChangeBtn');
+    const nameField = document.getElementById('usernameField');
+    const messageBox = document.getElementById('message');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseOverlay = document.getElementById('pauseOverlay');
+    const inputSection = document.getElementById('inputSection');
+    const restartSection = document.getElementById('restartSection');
+
+    let username = localStorage.getItem('tetrisUser') || '';
+    let highScoreData = JSON.parse(localStorage.getItem('tetrisHighScore') || '{"name":"---","score":0}');
+    let gameRunning = false;
+    let gamePaused = false;
+
+    const arena = createMatrix(12, 20);
+    const player = { pos: {x: 0, y: 0}, matrix: null, score: 0 };
+    const colors = [null,'#FF0D72','#0DC2FF','#0DFF72','#F538FF','#FF8E0D','#FFE138','#3877FF'];
+
+    let dropCounter = 0;
+    let dropInterval = 1000;
+    let lastTime = 0;
+
+    // Temporizador
+    let gameStartTime = 0;
+    let gameTimerInterval = null;
+
+    function startTimer() {
+      gameStartTime = Date.now();
+      timerEl.innerText = `Tempo: 00:00`;
+      gameTimerInterval = setInterval(() => {
+        const elapsed = Date.now() - gameStartTime;
+        const minutes = Math.floor(elapsed / 60000);
+        const seconds = Math.floor((elapsed % 60000) / 1000);
+        timerEl.innerText = `Tempo: ${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+      }, 500);
+    }
+
+    function stopTimer() {
+      clearInterval(gameTimerInterval);
+      const elapsed = Date.now() - gameStartTime;
+      const minutes = Math.floor(elapsed / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+    }
+
+    function createMatrix(w, h) {
+      const matrix = [];
+      while (h--) matrix.push(new Array(w).fill(0));
+      return matrix;
+    }
+
+    function createPiece(type) {
+      switch (type) {
+        case 'T': return [[0,0,0],[1,1,1],[0,1,0]];
+        case 'O': return [[2,2],[2,2]];
+        case 'L': return [[0,3,0],[0,3,0],[0,3,3]];
+        case 'J': return [[0,4,0],[0,4,0],[4,4,0]];
+        case 'I': return [[0,5,0,0],[0,5,0,0],[0,5,0,0],[0,5,0,0]];
+        case 'S': return [[0,6,6],[6,6,0],[0,0,0]];
+        case 'Z': return [[7,7,0],[0,7,7],[0,0,0]];
+      }
+    }
+
+    function arenaSweep() {
+      let rowCount = 1;
+      for (let y = arena.length - 1; y >= 0; y--) {
+        if (arena[y].every(v => v !== 0)) {
+          const row = arena.splice(y, 1)[0].fill(0);
+          arena.unshift(row);
+          y++;
+          player.score += rowCount * 10;
+          rowCount *= 2;
+        }
+      }
+    }
+
+    function collide(arena, player) {
+      const m = player.matrix;
+      const o = player.pos;
+      for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+          if (m[y][x] !== 0) {
+            if (!arena[y + o.y] || arena[y + o.y][x + o.x] !== 0) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function drawMatrix(matrix, offset) {/*easter egg*/
+      const neoMode = username.toLowerCase() === 'neo';
+      matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            context.fillStyle = neoMode ? '#32CD32' : colors[value];
+            context.fillRect(x + offset.x, y + offset.y, 1, 1);
+          }
+        });
+      });
+    }
+
+    function draw() {
+      context.fillStyle = '#000';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      drawMatrix(arena, {x: 0, y: 0});
+      if (player.matrix) drawMatrix(player.matrix, player.pos);
+    }
+
+    function merge(arena, player) {
+      player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0 && arena[y + player.pos.y]) {
+            arena[y + player.pos.y][x + player.pos.x] = value;
+          }
+        });
+      });
+    }
+
+    function playerDrop() {
+      player.pos.y++;
+      if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+        updateScore();
+        if (collide(arena, player)) endGame();
+      }
+      dropCounter = 0;
+    }
+
+    function playerMove(dir) {
+      player.pos.x += dir;
+      if (collide(arena, player)) player.pos.x -= dir;
+    }
+
+    function rotate(matrix, dir) {
+      for (let y = 0; y < matrix.length; y++) {
+        for (let x = 0; x < y; x++) {
+          [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+        }
+      }
+      if (dir > 0) matrix.forEach(row => row.reverse());
+      else matrix.reverse();
+    }
+
+    function playerRotate(dir) {
+      const pos = player.pos.x;
+      rotate(player.matrix, dir);
+      let offset = 1;
+      while (collide(arena, player)) {
+        player.pos.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (offset > player.matrix[0].length) {
+          rotate(player.matrix, -dir);
+          player.pos.x = pos;
+          return;
+        }
+      }
+    }
+
+    function playerReset() {
+      const pieces = 'TJLOSZI';
+      player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+      player.pos.y = 0;
+      player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+    }
+
+    function updateScore() {
+      scoreEl.innerText = `Score: ${player.score}`;
+    }
+
+    function updateHighScoreDisplay() {
+      highScoreEl.innerText = `High Score: ${highScoreData.score} (${highScoreData.name})`;
+    }
+
+    function showMessage(msg) {
+      messageBox.innerText = msg;
+      messageBox.style.display = 'block';
+      setTimeout(() => { messageBox.style.display = 'none'; }, 3000);
+    }
+
+    function togglePause() {
+      if (!gameRunning) return;
+      gamePaused = !gamePaused;
+      if (gamePaused) {
+        clearInterval(gameTimerInterval);
+        pauseOverlay.style.display = 'flex';
+        pauseBtn.innerText = 'Continuar';
+      } else {
+        startTimer();
+        pauseOverlay.style.display = 'none';
+        pauseBtn.innerText = 'Pause';
+      }
+    }
+
+    function startGame() {
+      username = nameField.value || 'Player';
+      localStorage.setItem('tetrisUser', username);
+      playerNameEl.innerText = 'Jogador: ' + username;
+
+      // Verifica Neo e aplica background
+      const neoMode = username.toLowerCase() === 'neo';/* easter egg*/
+      if (neoMode) document.body.classList.add('neoMode');
+      else document.body.classList.remove('neoMode');
+
+      arena.forEach(row => row.fill(0));
+      player.score = 0;
+      dropCounter = 0;
+      lastTime = 0;
+      playerReset();
+      updateScore();
+      gameRunning = true;
+      gamePaused = false;
+      startTimer();
+      restartSection.style.display = 'none';
+      inputSection.style.display = 'block';
+      menu.style.display = 'none';
+      overlay.style.display = 'none';
+      pauseOverlay.style.display = 'none';
+      pauseBtn.innerText = 'Pause';
+    }
+
+    function restartSameUser() {
+      nameField.value = username;
+      startGame();
+    }
+
+    function restartChangeUser() {
+      nameField.value = '';
+      restartSection.style.display = 'none';
+      inputSection.style.display = 'block';
+    }
+
+    function endGame() {
+      gameRunning = false;
+      const finalTime = stopTimer();
+      const msg = player.score > highScoreData.score ?
+        `🏆 Novo recorde! ${username}: ${player.score} pontos. Tempo: ${finalTime}` :
+        `💀 Game Over! Pontuação: ${player.score}. Tempo: ${finalTime}`;
+
+      if (player.score > highScoreData.score) {
+        highScoreData = { name: username, score: player.score };
+        localStorage.setItem('tetrisHighScore', JSON.stringify(highScoreData));
+      }
+
+      updateHighScoreDisplay();
+      showMessage(msg);
+
+      overlay.style.display = 'block';
+      menu.style.display = 'block';
+      inputSection.style.display = 'none';
+      restartSection.style.display = 'block';
+    }
+
+    let lastTimeStamp = 0;
+    function update(time = 0) {
+      const deltaTime = time - lastTimeStamp;
+      lastTimeStamp = time;
+
+      if (!gamePaused && gameRunning) {
+        dropCounter += deltaTime;
+        if (dropCounter > dropInterval) playerDrop();
+      }
+
+      draw();
+      requestAnimationFrame(update);
+    }
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'p' || event.key === 'P') {
+        event.preventDefault();
+        togglePause();
+      }
+
+      if (!gameRunning || gamePaused) return;
+
+      switch(event.key) {
+        case 'ArrowLeft': event.preventDefault(); playerMove(-1); break;
+        case 'ArrowRight': event.preventDefault(); playerMove(1); break;
+        case 'ArrowDown': event.preventDefault(); playerDrop(); break;
+        case 'q': case 'Q': event.preventDefault(); playerRotate(-1); break;
+        case 'w': case 'W': event.preventDefault(); playerRotate(1); break;
+      }
+    });
+
+    startButton.addEventListener('click', startGame);
+    restartSameBtn.addEventListener('click', restartSameUser);
+    restartChangeBtn.addEventListener('click', restartChangeUser);
+    pauseBtn.addEventListener('click', togglePause);
+
+    updateHighScoreDisplay();
+    menu.style.display = 'block';
+    overlay.style.display = 'block';
+    update();
+  </script>
+</body>
+</html>
